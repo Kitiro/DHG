@@ -53,44 +53,28 @@ if __name__ == '__main__':
     ensure_path(save_path)
 
     graph = sio.loadmat(args.weight_file)
-    # edges = graph['edges']
-    # edges = np.vstack((graph['edges'], graph['aux_edges']))
 
-    # hops = graph['hops'].reshape(-1,1)
-    
-    # semantic_dis = graph['semantic_dis'].reshape(-1,1)
-    # visual_dis = graph['visual_dis'].reshape(-1,1)
-    
-    # aux = sio.loadmat('materials/imagenet-graph-nell.mat')
-    # edges1 = aux['hier_edges'].squeeze()
-    # edges2 = aux['parallel_edges'].squeeze()
-    # edges3 = aux['self_edges'].squeeze()
     wnids = list(graph['wnids'])
     n = len(wnids)
 
-    # aux_data = {'hops':hops, 'aux_edges':aux_edges}
     aux_data = None
 
     js = json.load(open('materials/imagenet-induced-graph.json', 'r'))
-
-    # wnids = js['wnids']
-    # n = len(wnids)
-
 
 # extended attributes
     word_vectors = js['vectors'][:n]
     word_dim = len(word_vectors[0])
     
     word_vectors = torch.tensor(word_vectors).float()
-    # word_vectors = F.normalize(word_vectors).cuda()
+    word_vectors = F.normalize(word_vectors)
 
     # word_vectors2 = torch.tensor(np.load('materials/class_attribute_map_imagenet.npy')).float()
-    # word_vectors2 = F.normalize(word_vectors2)
+    # word_vectors2 = F.normalize(word_vectors2, dim=0)
     
     # word_vectors = torch.cat((word_vectors, word_vectors2), dim=1)
     word_vectors = torch.cat((word_vectors, torch.zeros(2, word_vectors.shape[-1])), dim=0).cuda()
 
-    word_vectors = F.normalize(word_vectors)
+    # word_vectors = F.normalize(word_vectors)
     
     fcfile = json.load(open('materials/fc-weights.json', 'r'))
     train_wnids = [x[0] for x in fcfile]
@@ -100,7 +84,6 @@ if __name__ == '__main__':
     fc_vectors = F.normalize(fc_vectors).cuda()
 
     hidden_layers = args.hl # d2048,d
-    # gcn = GCN_Dense_Aux(n, edges, aux_data, word_vectors.shape[1], fc_vectors.shape[1], hidden_layers).cuda()
     gcn = GCN_Dense_Aux(in_channels=word_vectors.shape[1], out_channels=fc_vectors.shape[1]).cuda()
     
     # print('{} nodes, {} edges'.format(n, len(edges)))
@@ -127,13 +110,13 @@ if __name__ == '__main__':
         'wnids': wnids,
         'pred': None,
     }
-    padding_num = 5 # 随机切割遮盖neighs
-    # prepare dataset
+    padding_num = 7 # 随机切割遮盖neighs
 
+    # prepare dataset
     dataset_train = DataSet(
         word_vectors,
         graph,
-        random_neighs_num=20000,
+        random_neighs_num=10000,
         padding_num=padding_num,
         train=True,
     )
@@ -193,7 +176,7 @@ if __name__ == '__main__':
             if early_stopping.early_stop:
                 print('trianing early stop on loss %.4f' % loss)
                 break
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
             # if loss.item() <= min_loss:
             #     if args.no_pred:
             #         pred_obj = None

@@ -359,9 +359,9 @@ class DataSet_reverse(Dataset):
         for adj_nodes, nodes_aux in zip(batch_nodes_list, batch_aux_list):
             # x = list(adj_nodes[:max_len])
             if len(adj_nodes) > max_len:
-                random_idx = random.sample(range(len(adj_nodes)), max_len)
-                x = [adj_nodes[i] for i in random_idx]
-                a = [nodes_aux[i] for i in random_idx]
+                random_idx = random.sample(range(1, len(adj_nodes)), max_len-1)
+                x = [adj_nodes[0]] + [adj_nodes[i] for i in random_idx]
+                a = [nodes_aux[0]] + [nodes_aux[i] for i in random_idx]
             else:
                 x = list(adj_nodes[:max_len])
                 a = nodes_aux[:max_len]
