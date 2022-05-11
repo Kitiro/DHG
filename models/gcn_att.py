@@ -249,55 +249,57 @@ class GraphAtt(nn.Module):
         else:
             self.dropout = None
 
-        self.proj_before = nn.Sequential(
-            nn.Linear(in_channels, out_channels, bias=True),
+        self.proj = nn.Sequential(
+            nn.Linear(in_channels, out_channels),
             nn.LeakyReLU(negative_slope=0.2),
         )
         self.proj_after = nn.Sequential(
-            nn.Linear(out_channels, out_channels, bias=True),
+            nn.Linear(out_channels, out_channels),
             nn.LeakyReLU(negative_slope=0.2),
         )
 
-        # self.ln = LayerNorm(out_channels, out_channels)
-        self.key = nn.Linear(out_channels, out_channels, bias=False)
-        self.query = nn.Linear(out_channels, out_channels, bias=False)
-        # self.smp = nn.Parameter(torch.ones(1))
-        xavier_uniform_(self.key.weight)
-        xavier_uniform_(self.query.weight)
+        # self.key = nn.Linear(out_channels, out_channels, bias=False)
+        # self.query = nn.Linear(out_channels, out_channels, bias=False)
+        self.atn_proj = nn.Sequential(
+            nn.Linear(2*in_channels+4, 1024),
+            # nn.LeakyReLU(negative_slope=0.2),
+            # nn.Linear(1024, 512),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Linear(1024, 1),
+        )
+        self.aux_attn = nn.Sequential(
+            nn.Linear(4, 1, bias=True),
+            nn.LeakyReLU(negative_slope=0.2),
+        )
+        # xavier_uniform_(self.aux_attn.weight)
 
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.2)
         else:
             self.relu = None
+       
 
-        for module in [self.proj_before, self.proj_after]:
-            for layer in module:
-                try: xavier_uniform_(layer.weight)
-                except: pass
-        
-
-    def forward(self, word_vec, src_idx, neighs_idx, src_mask):  # att-trainable params
+    def forward(self, word_vec, src_idx, neighs_idx, aux, src_mask):  # att-trainable params
         if self.dropout is not None:
             supports = self.dropout(word_vec)
-        # supports = self.proj_before(supports)
-        # if self.relu is not None:
-        #     supports = self.relu(supports)x
-        # query = self.query(supports[src_idx]).unsqueeze(1)
-        # key = self.key(supports[neighs_idx])
-        query = supports[src_idx].unsqueeze(1)
-        key = supports[neighs_idx]
-        # key = self.ln(self.key(supports[neighs_idx]))
-        # values = self.value(neighs_feats)
 
-        attention_scores = torch.matmul(query, key.transpose(-1, -2))*5 # [n, 1, 2048] * [n, 2048, 4] -> [n, 1, 4]
+        query = supports[src_idx].unsqueeze(1).repeat(1, neighs_idx.size(-1), 1)
+        key = supports[neighs_idx]
+        cmb = torch.cat((query, key, aux), dim=-1)
+        attention_scores = self.atn_proj(cmb)
+
+        # attention_scores = torch.matmul(query, key.transpose(-1, -2))*2 # [n, 1, 2048] * [n, 2048, 4] -> [n, 1, 4]
         # attention_scores = attention_scores / math.sqrt(src_mask.size(1))
-        # attention_scores = torch.rand(src_mask.shape).unsqueeze(1).cuda()
-        
+        # attention_scores_aux = self.aux_attn(aux) # [n, 1, 2048] * [n, 2048, 4] -> [n, 1, 4]
+
         # Normalize the attention scores to probabilities.
-        attention_probs = masked_softmax_(attention_scores, src_mask)
+        attention_probs = masked_softmax_(attention_scores, src_mask).transpose(-1, -2)
+        # attention_probs = masked_softmax_(attention_scores, src_mask).squeeze()
+        # attention_probs2 = masked_softmax_(attention_scores_aux.view(attention_scores.shape), src_mask)
         # attention_probs = nn.Softmax(dim=-1)(attention_scores)
         # attention_probs = self.attn_dropout(attention_probs)
-        supports = self.proj_before(supports)
+        supports = self.proj(supports)
+        # supports[src_idx] = torch.matmul((attention_probs + attention_probs2)/2, supports[neighs_idx]).squeeze()
         supports[src_idx] = torch.matmul(attention_probs, supports[neighs_idx]).squeeze()
         # supports[src_idx] = self.proj_after(torch.matmul(attention_probs, key)).squeeze()
         # outputs = torch.matmul(attention_probs, neigh_feats).squeeze()
@@ -313,48 +315,17 @@ class GCN_Dense_Aux(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        # aux_edges = torch.tensor(aux['aux_edges']) # hier_edges, parallel_edges, self_edges
-        # edges = torch.tensor(edges)
-        # edges_r = torch.tensor([edges[:, 1], edges[:, 0]]).permute(1, 0)
-        # aux_edges_r = torch.tensor([aux_edges[:,1], aux_edges[:,0]]).permuete(1,0)
+        layer1 = GraphAtt(in_channels, out_channels, relu=True, dropout=True)
+        layer2 = GraphAtt(out_channels, out_channels, relu=True, dropout=True)
+        layer3 = GraphAtt(out_channels, out_channels, relu=True, dropout=True)
+        layer4 = GraphAtt(out_channels, out_channels, relu=True, dropout=True)
         
-        # self.adjs = [[] for _ in range(self.n)]
-        # self.adjs_r = [[] for _ in range(self.n)]
-
-        # self.d = 2
-        
-        # for a, b in edges:
-        #     self.adjs[a].append(b)
-        #     self.adjs[b].append(a)
-
-        # for idx, a in enumerate(self.adjs):
-        #     self.adjs[idx] = list(set(a))
-
-        # self.a_adj_set = []
-        # self.r_adj_set = []
-
-        # self.a_adj_set.append(edges)
-        # self.a_adj_set.append(aux_edges)
-
-        # self.r_adj_set.append(r_edges) 
-        # self.r_adj_set.append(r_aux_edges) 
-
-
-        # 可学权重值，为三种固定权重值赋予动态调整
-        # self.a_att = nn.Parameter(torch.ones(self.d))
-        # self.r_att = nn.Parameter(torch.ones(self.d))
-
-        layer1 = GraphAtt(in_channels, 512, relu=True, dropout=True)
-        layer2 = GraphAtt(512, 1024, relu=True, dropout=True)
-        layer3 = GraphAtt(1024, out_channels, relu=True, dropout=True)
-        # layer4 = GraphAtt(out_channels, out_channels, relu=True, dropout=True)
-
         # layer1 = GraphAtt(in_channels, 1024, relu=True, dropout=True)
         # layer2 = GraphAtt(1024, 2048, relu=True, dropout=False)
         # layer3 = GraphAtt(2048, out_channels, relu=True, dropout=False)
 
         self.layers = []
-        for i in range(3):
+        for i in range(2):
             self.layers.append(eval(f'layer{str(i+1)}')) 
             self.add_module(f'att-layer{str(i+1)}', self.layers[i])
 
@@ -368,29 +339,8 @@ class GCN_Dense_Aux(nn.Module):
 
     # src_feats: [n, 300], neighs_feats:[n*k, 300], src_mask:[n, max_len] 
     # def forward(self, word_vectors, src_idx, neighs_idx, src_mask):
-    def forward(self, word_vec, src_idx, neighs_idx, src_mask):
-        # uni_src = src_idx.flatten()
-        # uni_neighs = torch.unique(neighs_idx)
-        # neighs_num = torch.nonzero(src_mask.flatten()).shape[0]
-        # cnt1 = []
-        # cnt2 = []
-        # # 统计邻居结点中，有多少邻居会被训练过程影响而修改。
-        # for s, n, mask in zip(src_idx, neighs_idx, src_mask):
-        #     total = torch.nonzero(mask).shape[0]
-        #     if total == 0:
-        #         continue
-        #     cnt = 0
-        #     for nn in n:
-        #         if nn in uni_src and nn!=s and nn!=0:
-        #             cnt+=1
-        #     if s < 1000:
-        #         cnt1.append(cnt/total)
-        #     else:
-
-        #         cnt2.append(cnt/total)
-        # print('%i src, %i neighs, %i unique neighs, train modified : %.2f %%, unseen modified : %.2f %%.' % (uni_src.shape[0], neighs_num, uni_neighs.shape[0], np.mean(cnt1), np.mean(cnt2)))
+    def forward(self, word_vec, src_idx, neighs_idx, aux, src_mask):
         for layer in self.layers:
-            word_vec = layer(word_vec, src_idx, neighs_idx, src_mask)
+            word_vec = layer(word_vec, src_idx.squeeze().cuda(), neighs_idx.squeeze().cuda(), aux.squeeze().cuda(), src_mask.squeeze().cuda())
             
-        # return word_vec[src_idx]
         return F.normalize(word_vec[src_idx])
