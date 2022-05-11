@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight-decay', type=float, default=0.0001)
     parser.add_argument('--save-epoch', type=int, default=500)
     parser.add_argument('--save-path', default='save/gcn-att')
-    parser.add_argument('--weight-file', default='materials/imagenet-nell-edges-all.mat', help='imagenet-nell-edges-all.mat')
+    parser.add_argument('--weight-file', default='materials/nell-multi-weight-graph-1-hops.mat', help='imagenet-nell-edges-all.mat')
     parser.add_argument('--gpu', default='0')
     parser.add_argument('--hl', default='d2048,d')
     parser.add_argument('--no-pred', action='store_true')
@@ -56,39 +56,12 @@ if __name__ == '__main__':
     ensure_path(save_path)
 
     graph = sio.loadmat(args.weight_file)
-    edges = graph['edges']
-    # edges = np.vstack((graph['edges'], graph['aux_edges']))
-
-    # hops = graph['hops'].reshape(-1,1)
-    
-    # semantic_dis = graph['semantic_dis'].reshape(-1,1)
-    # visual_dis = graph['visual_dis'].reshape(-1,1)
-    
-    # aux = sio.loadmat('materials/imagenet-graph-nell.mat')
-    # edges1 = aux['hier_edges'].squeeze()
-    # edges2 = aux['parallel_edges'].squeeze()
-    # edges3 = aux['self_edges'].squeeze()
+    # edges = graph['edges']
+   
     wnids = list(graph['wnids'])
     n = len(wnids)
 
-    # aux_data = {'hops':hops, 'aux_edges':aux_edges}
-    aux_data = None
-
     js = json.load(open('materials/imagenet-induced-graph.json', 'r'))
-
-    # wnids = js['wnids']
-    # n = len(wnids)
-
-
-    # original word vectors
-    # word_vectors = js['vectors'][:n]
-    # word_dim = len(word_vectors[0])
-    # word_vectors.append(list(np.zeros(word_dim)))
-    # word_vectors.append(list(np.zeros(word_dim)))
-    
-    # word_vectors = torch.tensor(word_vectors)
-    # word_vectors = F.normalize(word_vectors)
-
 
 # extended attributes
     word_vectors = js['vectors'][:n]
@@ -104,7 +77,6 @@ if __name__ == '__main__':
     word_vectors = torch.cat((word_vectors, torch.zeros(2, word_vectors.shape[-1])), dim=0).cuda()
 
     word_vectors = F.normalize(word_vectors)
-
     
     fcfile = json.load(open('materials/fc-weights.json', 'r'))
     train_wnids = [x[0] for x in fcfile]
@@ -117,7 +89,7 @@ if __name__ == '__main__':
     # gcn = GCN_Dense_Aux(n, edges, aux_data, word_vectors.shape[1], fc_vectors.shape[1], hidden_layers).cuda()
     gcn = GCN_Dense_Aux(in_channels=word_vectors.shape[1], out_channels=fc_vectors.shape[1]).cuda()
     
-    print('{} nodes, {} edges'.format(n, len(edges)))
+    # print('{} nodes, {} edges'.format(n, len(edges)))
     print('word vectors:', word_vectors.shape)
     print('fc vectors:', fc_vectors.shape)
     print('hidden layers:', hidden_layers)
@@ -146,14 +118,14 @@ if __name__ == '__main__':
 
     dataset_train = DataSet(
         word_vectors,
-        edges,
+        graph,
         random_neighs_num=10000,
         padding_num=padding_num,
         train=True,
     )
     dataset_test = DataSet(
         word_vectors,
-        edges,
+        graph,
         padding_num=padding_num,
         train=False
     )
@@ -169,10 +141,10 @@ if __name__ == '__main__':
         cnt = 0
         gcn.train()
 
-        for src_feats, neighs_feats, src_mask in train_loader:
+        for src_idx, neighs_idx, aux, src_mask in train_loader:
             if cnt == 10:
                 break
-            output_vectors = gcn(word_vectors, src_feats.squeeze().cuda(), neighs_feats.squeeze().cuda(), src_mask.squeeze().cuda())
+            output_vectors = gcn(word_vectors, src_idx.squeeze(), neighs_idx, aux, src_mask)
             loss = mask_l2_loss(output_vectors, fc_vectors, tlist[:n_train])
             optimizer.zero_grad()
             loss.backward()
@@ -184,8 +156,8 @@ if __name__ == '__main__':
         with torch.no_grad():
             gcn.eval()
             output_vectors = torch.empty(0, fc_vectors.shape[1]).cuda()
-            for src_feats, neighs_feats, src_mask in test_loader:
-                output_vector = gcn(word_vectors, src_feats.squeeze().cuda(), neighs_feats.squeeze().cuda(), src_mask.squeeze().cuda())
+            for src_idx, neighs_idx, aux, src_mask in test_loader:
+                output_vector = gcn(word_vectors, src_idx.squeeze(), neighs_idx, aux, src_mask)
                 output_vectors = torch.cat((output_vectors, output_vector), dim=0)
             train_loss = mask_l2_loss(output_vectors, fc_vectors, tlist[:n_train]).item()
             if v_val > 0:
@@ -203,11 +175,11 @@ if __name__ == '__main__':
             # trlog['min_loss'] = min_loss if min_loss < loss.item() else val_loss
             # torch.save(trlog, osp.join(save_path, 'trlog'))
             pred['pred'] = output_vectors
-            early_stopping(loss, gcn, pred)
+            early_stopping(loss, gcn, pred, optimizer)
             if early_stopping.early_stop:
                 print('trianing early stop on loss %.4f' % loss)
                 break
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
             # if loss.item() <= min_loss:
             #     if args.no_pred:
             #         pred_obj = None
@@ -220,4 +192,3 @@ if __name__ == '__main__':
             #         }
                 # min_loss = loss.item()
                 # save_checkpoint()
-            

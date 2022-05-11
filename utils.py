@@ -155,36 +155,43 @@ class EarlyStopping:
 
 class DataSet(Dataset):
     # 每次随机采样k个test结点
-    def __init__(self, word, edges, random_neighs_num=500, padding_num=50, train=False):
+    def __init__(self, word, graph, random_neighs_num=500, padding_num=50, train=False):
         self.word_vectors = word
         # self.adjs = adjs
         self.n = len(word)
         self.k = random_neighs_num
         self.l = padding_num
         self.train = train
-        self.adjs = self.prepare_adjs(edges)
+        self.prepare_adjs(graph)
 
         if self.train:
             self.train_list = list(range(1000))
-            self.train_neighs, self.train_mask = self.pad_tensor(adj_nodes_list=self.adjs, indices=self.train_list, max_len=padding_num)
+            self.train_neighs, self.train_aux, self.train_mask = self.pad_tensor(adj_nodes_list=self.adjs, aux_list=self.aux, indices=self.train_list, max_len=self.l)
         else:
-            self.test_neighs, self.test_mask = self.pad_tensor(adj_nodes_list=self.adjs, indices=list(range(self.n)), max_len=padding_num)  
+            self.test_neighs, self.test_aux, self.test_mask = self.pad_tensor(adj_nodes_list=self.adjs, aux_list=self.aux, indices=list(range(self.n)), max_len=self.l)  
 
-    def prepare_adjs(self, edges):
-        adjs = [[i] for i in range(self.n)]
-        for a, b in edges:
-            adjs[a].append(b)
-            adjs[b].append(a)
-        for i, adj in enumerate(adjs):
-            adjs[i] = sorted(list(set(adj)), key=adj.index)  # 保持原有顺序去重，将src node放在起始位置。
+    def prepare_adjs(self, graph):
+        self.adjs = [[] for _ in range(self.n)]
+        self.aux = [[] for i in range(self.n)]
+        aux_feats = np.hstack((graph['hops'].reshape(-1, 1), graph['semantic_dis'].reshape(-1, 1), graph['visual_dis'].reshape(-1, 1), graph['hier'].reshape(-1, 1)))
+
+        aux_feats_r = np.hstack((graph['hops'].reshape(-1, 1), graph['semantic_dis'].reshape(-1, 1), graph['visual_dis'].reshape(-1, 1), graph['hier_r'].reshape(-1, 1)))
+        
+        for idx, (a, b) in enumerate(graph['edges']):
+            self.adjs[a].append(b)
+            self.aux[a].append(list(aux_feats[idx]))
+        for idx, (a, b) in enumerate(graph['edges_r']):
+            if a == b :
+                continue
+            self.adjs[a].append(b)
+            self.aux[a].append(list(aux_feats_r[idx]))
 
         if self.train:
             print('--------- adjs prepare ----------')
             cnt_seen, cnt_seen_del = 0, 0
             cnt_unseen, cnt_unseen_del = 0, 0
-            # cnt = [len(adj_nodes) for adj_nodes in adjs]
             for i in range(self.n):
-                num = len(adjs[i])
+                num = len(self.adjs[i])
                 if i < 1000:
                     cnt_seen += num
                     cnt_seen_del += self.l if num > self.l else num
@@ -192,38 +199,46 @@ class DataSet(Dataset):
                     cnt_unseen += num
                     cnt_unseen_del += self.l if num > self.l else num
             print(cnt_seen+cnt_unseen, 'edges total.')
-            print(cnt_seen_del+cnt_unseen_del, 'edges left after being padded.', f'throwing {cnt_seen-cnt_seen_del} seen edges.', f'throwing {cnt_unseen-cnt_unseen_del} un seen edges.')
+            print(cnt_seen_del+cnt_unseen_del, 'edges left after being padded.', f'throwing {cnt_seen-cnt_seen_del} seen edges.', f'throwing {cnt_unseen-cnt_unseen_del} unseen edges.')
+            cal_len = max([len(adj_nodes) for adj_nodes in self.adjs])
+            self.l = self.l if cal_len > self.l else cal_len
+            print('cnt max neigh nodes num in adjs:', cal_len, 'padding_num is:', self.l)
 
-        return adjs
 
-
-    def pad_tensor(self, adj_nodes_list, indices, max_len=100):
+    def pad_tensor(self, adj_nodes_list, aux_list, indices, max_len=10):
         """Function pads the neighbourhood nodes before passing through the
-        aggregator.
+        aggregator. Providing more information on edges.
         Args:
-            adj_nodes_list (list): the list of node neighbours
+            adj_nodes_list (list): the list of all node neighbours
+            aux_list (list): aux information on corresponding edge
+            indices (list): source nodes
         Returns:
             tuple: one of two tensors containing the padded tensor and mask
         """
-        cal_len = max([len(adj_nodes) for adj_nodes in adj_nodes_list])
-        max_len = max_len if cal_len > max_len else cal_len
 
-        # mean_len = 4
-        adj_nodes_list = [adj_nodes_list[ind] for ind in indices]
+        # 选出一个batch的source nodes及其对应neighbours
+        batch_nodes_list = [adj_nodes_list[ind] for ind in indices]
+        batch_aux_list = [aux_list[ind] for ind in indices]
+
         padded_nodes = []
+        padded_aux = []
         mask = []
-        for adj_nodes in adj_nodes_list:
-            x = list(adj_nodes[:max_len])
-            # if len(adj_nodes) > max_len:
-            #     x = random.sample(adj_nodes, max_len)
-            # else:
-            #     x = list(adj_nodes[:max_len])
+        for adj_nodes, nodes_aux in zip(batch_nodes_list, batch_aux_list):
+            if len(adj_nodes) > max_len:
+                random_idx = random.sample(range(1, len(adj_nodes)), max_len-1)
+                x = [adj_nodes[0]] + [adj_nodes[i] for i in random_idx]
+                a = [nodes_aux[0]] + [nodes_aux[i] for i in random_idx]
+            else:
+                x = list(adj_nodes[:max_len])
+                a = nodes_aux[:max_len]
             mask.append([1] * len(x) + [0] * (max_len - len(x)))
             x += [0] * (max_len - len(x))
+            a += [[0]*4 for _ in range(max_len - len(a))]
             padded_nodes.append(x)
+            padded_aux.append(a)
 
         # returning the mask as well
-        return torch.tensor(padded_nodes).long(), torch.tensor(mask).long()
+        return torch.tensor(padded_nodes).long(), torch.tensor(padded_aux).float(), torch.tensor(mask).long()
 
     # for training
     def __getitem__(self, index):
@@ -231,20 +246,18 @@ class DataSet(Dataset):
             src_idx = self.train_list
             random_idx = random.sample(list(range(len(self.train_list), self.n)), self.k)
             src_idx = torch.cat((torch.tensor(src_idx), torch.tensor(random_idx)))  # [batch, 1]
-            random_neighs, random_mask = self.pad_tensor(self.adjs, random_idx, self.l)
+            random_neighs, random_aux, random_mask = self.pad_tensor(self.adjs, self.aux, random_idx, self.l)
 
-            # src_feats = self.word_vectors[src_idx]
             neighs_idx = torch.cat((self.train_neighs, random_neighs))  # [batch, padding]
-            # neighs_feats = self.word_vectors[neighs_idx]
 
             src_mask = torch.cat((self.train_mask, random_mask))
 
-            return src_idx, neighs_idx, src_mask
-            # return src_feats, neighs_feats, src_mask
+            aux = torch.cat((self.train_aux, random_aux))
+
+            return src_idx, neighs_idx, aux, src_mask
         else:
 
-            return index, self.test_neighs[index], self.test_mask[index]
-            # return self.word_vectors[[index]*self.l], self.word_vectors[self.test_neighs[index]], self.test_mask[index]
+            return index, self.test_neighs[index], self.test_aux[index], self.test_mask[index]
 
     def __len__(self):
         return self.n
@@ -357,7 +370,6 @@ class DataSet_reverse(Dataset):
         padded_aux = []
         mask = []
         for adj_nodes, nodes_aux in zip(batch_nodes_list, batch_aux_list):
-            # x = list(adj_nodes[:max_len])
             if len(adj_nodes) > max_len:
                 random_idx = random.sample(range(1, len(adj_nodes)), max_len-1)
                 x = [adj_nodes[0]] + [adj_nodes[i] for i in random_idx]
