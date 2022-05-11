@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--weight-decay', type=float, default=0.0005)
     parser.add_argument('--save-epoch', type=int, default=500)
-    parser.add_argument('--save-path', default='save/gcn-dense-aux')
+    parser.add_argument('--save-path', default='save/gcn')
     parser.add_argument('--weight-file', default='materials/imagenet-nell-edges-all.mat')
     parser.add_argument('--gpu', default='0')
     parser.add_argument('--hl', default='d2048,d')
@@ -50,17 +50,7 @@ if __name__ == '__main__':
 
     graph = sio.loadmat(args.weight_file)
     edges = graph['edges']
-    #aux_edges = graph['aux_edges']
 
-    # hops = graph['hops'].reshape(-1,1)
-    
-    # semantic_dis = graph['semantic_dis'].reshape(-1,1)
-    # visual_dis = graph['visual_dis'].reshape(-1,1)
-    
-    # aux = sio.loadmat('materials/imagenet-graph-nell.mat')
-    # edges1 = aux['hier_edges'].squeeze()
-    # edges2 = aux['parallel_edges'].squeeze()
-    # edges3 = aux['self_edges'].squeeze()
     wnids = list(graph['wnids'])
     n = len(wnids)
     

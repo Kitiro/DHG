@@ -44,6 +44,7 @@ Make a directory `save/` for saving models.
 In most programs, use `--gpu` to specify the devices to run the code (default: use gpu 0).
 
 #### Train Graph Networks
+* Only-word-vectors: Run `python train_gcn.py`, get results in `save/gcn`
 * DHG: Run `python train_gcn_att.py`, get results in `save/gcn-att`
 * DHG-r: Run `python  train_gcn_att_r.py`, get results in `save/gcn-att-r`, in which edges are grouped by directions.
 
