@@ -75,6 +75,6 @@ python evaluate_imagenet.py --cnn materials/resnet101-base.pth --pred save/gcn-d
 
 #### AwA2
 Run `python evaluate_awa2.py` with the args:
-* `--cnn`: path to resnet50 weights, e.g. `materials/resnet101-base.pth` or `save/resnet-fit-xxx/x.pth`
+* `--cnn`: path to resnet101 weights, e.g. `materials/resnet101-base.pth` or `save/resnet-fit-xxx/x.pth`
 * `--pred`: the `.pred` file for testing
 * (optional) `--consider-trains` to include training classes' classifiers
