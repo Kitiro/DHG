@@ -17,20 +17,21 @@ There is a folder `materials/`, which contains some meta data and programs alrea
 1. Download: http://nlp.stanford.edu/data/glove.6B.zip
 2. Unzip it, find and put `glove.6B.300d.txt` to `materials/`.
 
-#### Graphs
+#### Build Word-Net Graphs
 1. `cd materials/`
 2. Run `python make_induced_graph.py`, get `imagenet-induced-graph.json`
 3. Run `python make_dense_graph.py`, get `imagenet-dense-graph.json`  # 200082 edges
 3. Run `python make_dense_grouped_graph.py`, get `imagenet-dense-grouped-graph.json`
 
-#### Pretrained ResNet50
-1. Download: https://download.pytorch.org/models/resnet50-19c8e357.pth
-2. Rename and put it as `materials/resnet50-raw.pth`
-3. `cd materials/`, run `python process_resnet.py`, get `fc-weights.json` and `resnet50-base.pth`
+#### Build NELL Graphs
+1. `cd materials/`
+2. find the construct section in 'construct_multi_weight_graph.ipynb'.
+#### Obtain Pretrained ResNet101
+ `cd materials/`, run `python process_resnet.py`, get `fc-weights.json` and `resnet101-base.pth`
 
 #### ImageNet and AwA2
 
-Download ImageNet and AwA2, create the softlinks (command `ln -s`): `materials/datasets/imagenet` and `materials/datasets/awa2`, to the root directory of the dataset.
+Download ImageNet by your own. and AwA2, create the softlinks (command `ln -s`): `materials/datasets/imagenet` and `materials/datasets/awa2`, to the root directory of the dataset.
 
 An ImageNet root directory should contain image folders, each folder with the wordnet id of the class.
 
@@ -43,8 +44,8 @@ Make a directory `save/` for saving models.
 In most programs, use `--gpu` to specify the devices to run the code (default: use gpu 0).
 
 #### Train Graph Networks
-* SGCN: Run `python train_gcn_basic.py`, get results in `save/gcn-basic`
-* DGP: Run `python train_gcn_dense_att.py`, get results in `save/gcn-dense-att`
+* DHG: Run `python train_gcn_att.py`, get results in `save/gcn-att`
+* DHG-r: Run `python  train_gcn_att_r.py`, get results in `save/gcn-att-r`, in which edges are grouped by directions.
 
 In the results folder:
 * `*.pth` is the state dict of Graph Networks model
@@ -58,26 +59,22 @@ Run `python train_resnet_fit.py` with the args:
 
 python train_resnet_fit.py --pred save/gcn-dense-att/epoch-3000.pred --train-dir materials/datasets/imagenet --save-path save/resnet-fit
 
-
 (In the paper's setting, --train-dir is the folder composed of 1K classes from fall2011.tar, with the missing class "teddy bear" from ILSVRC2012.)
 
 ### Testing
 
 #### ImageNet
 Run `python evaluate_imagenet.py` with the args:
-* `--cnn`: path to resnet50 weights, e.g. `materials/resnet50-base.pth` or `save/resnet-fit-xxx/x.pth`
+* `--cnn`: path to resnet101 weights, e.g. `materials/resnet101-base.pth` or `save/resnet-fit-xxx/x.pth`
 * `--pred`: the `.pred` file for testing
 * `--test-set`: load test set in `materials/imagenet-testsets.json`, choices: `[2-hops, 3-hops, all]`
 
-python evaluate_imagenet.py --cnn materials/resnet50-base.pth --pred save/gcn-dense-att/epoch-3000.pred --test-set 2-hops
+python evaluate_imagenet.py --cnn materials/resnet101-base.pth --pred save/gcn-dense-att/epoch-3000.pred --test-set 2-hops
 
 * (optional) `--keep-ratio` for the ratio of testing data, `--consider-trains` to include training classes' classifiers, `--test-train` for testing with train classes images only.
 
 #### AwA2
 Run `python evaluate_awa2.py` with the args:
-* `--cnn`: path to resnet50 weights, e.g. `materials/resnet50-base.pth` or `save/resnet-fit-xxx/x.pth`
+* `--cnn`: path to resnet50 weights, e.g. `materials/resnet101-base.pth` or `save/resnet-fit-xxx/x.pth`
 * `--pred`: the `.pred` file for testing
 * (optional) `--consider-trains` to include training classes' classifiers
-
-imagenet_result:
-summary: 10.64% 24.35% 46.33% 61.35% 73.04% total 130593  keep_ratio:0.1
